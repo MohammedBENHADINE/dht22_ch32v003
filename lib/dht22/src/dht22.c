@@ -119,17 +119,27 @@ int DHT22_Read(GPIO_TypeDef *GPIOx, uint16_t pin, DHT22_Data *out) {
 
     // Wait for sensor to pull line low then high
     uint32_t timeout = 0;
+    while (DHT22_READ_DATA(GPIOx, pin) == 1) {
+        if (++timeout > 1000000) return DHT22_ERROR_TIMEOUT_LOW;
+    }
+    timeout = 0;
     while (DHT22_READ_DATA(GPIOx, pin) == 0) {
         if (++timeout > 1000000) return DHT22_ERROR_TIMEOUT_LOW;
     }
-
-    
+    // Wait for line to go LOW again (first data bit's LOW phase)
     timeout = 0;
     while (DHT22_READ_DATA(GPIOx, pin) == 1) {
         if (++timeout > 1000000) return DHT22_ERROR_TIMEOUT_HIGH;
     }
 
-            // **NOW enable interrupts and start timer**
+        // Wait for line to go LOW again (first data bit's LOW phase)
+    timeout = 0;
+    while (DHT22_READ_DATA(GPIOx, pin) == 0) {
+        if (++timeout > 1000000) return DHT22_ERROR_TIMEOUT_HIGH;
+    }
+    TIM_ClearITPendingBit(TIM1, TIM_IT_CC1 | TIM_IT_CC2 | TIM_IT_Update);
+
+    // **NOW enable interrupts and start timer**
     TIM_ITConfig(TIM1, TIM_IT_CC1 | TIM_IT_CC2, ENABLE);
     TIM_SetCounter(TIM1, 0);
     TIM_Cmd(TIM1, ENABLE);
@@ -145,14 +155,14 @@ int DHT22_Read(GPIO_TypeDef *GPIOx, uint16_t pin, DHT22_Data *out) {
         return DHT22_ERROR_TIMEOUT_DATA;
     }
 
-    // After DHT22_Read returns
-printf("Total captures: %d\r\n", debug_count);
-printf("First 5 pulse widths: ");
-for (int i = 0; i < debug_count; i++) {
-    printf("%lu ", debug_captures[i]);
-}
-printf("\r\n");
-debug_count = 0;  // Reset for next read
+        // After DHT22_Read returns
+    printf("Total captures: %d\r\n", debug_count);
+    printf("First 5 pulse widths: ");
+    for (int i = 0; i < debug_count; i++) {
+        printf("%lu ", debug_captures[i]);
+    }
+    printf("\r\n");
+    debug_count = 0;  // Reset for next read
 
     // Disable timer
     TIM_Cmd(TIM1, DISABLE);
@@ -204,23 +214,16 @@ void TIM1_CC_IRQHandler(void) {
         uint32_t high_us = TIM_GetCapture2(TIM1);
         
         // Store for debugging
-        if (debug_count < 45) {
+        if (debug_count < 40) {
             debug_captures[debug_count++] = high_us;
         }
 
-        // Skip first 3 spurious captures
-        if (dht22.index < 3) {
-            dht22.index++;
-            return;
-        }
-
         // Store the actual data bits (indices 3-42 map to bits 0-39)
-        if (dht22.index < DHT22_MAX_BITS + 3) {
-            dht22.bits[dht22.index - 3] = (high_us > 50) ? 1 : 0;
-            dht22.index++;
+        if (dht22.index < DHT22_MAX_BITS)  {
+            dht22.bits[dht22.index++] = (high_us > 50) ? 1 : 0;
             
             // Check if we've received all 40 data bits
-            if (dht22.index >= DHT22_MAX_BITS + 3) {  // ✅ FIXED: 43 total captures
+            if (dht22.index >= DHT22_MAX_BITS) {  // ✅ FIXED: 43 total captures
                 TIM_Cmd(TIM1, DISABLE);
                 TIM_ITConfig(TIM1, TIM_IT_CC1 | TIM_IT_CC2, DISABLE);
                 dht22.ready = 1;
