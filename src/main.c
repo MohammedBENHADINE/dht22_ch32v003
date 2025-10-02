@@ -99,7 +99,7 @@ static void Display_SensorData(const DHT22_Data *sensor_data) {
     }
 
     // Display with decimal precision
-    printf("Temperature: %d °C  |  Humidity: %d \r\n",
+    printf("Temperature (x10): %d °C  |  Humidity(x10): %d \r\n",
            sensor_data->temperature,
            sensor_data->humidity);
 }
